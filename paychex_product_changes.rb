@@ -7,10 +7,8 @@ def get_quarter(date)
 end
 
 account_file = "./paychex_enhanced_accounts_Q#{get_quarter(date)}_#{date.year}.csv"
-worker_file = "./paychex_enhanced_workers_Q#{get_quarter(date)}_#{date.year}.csv"
 
 `touch #{account_file}`
-`touch #{worker_file}`
 
 def account_headers
   ['Bridge Instance',
@@ -32,18 +30,6 @@ def account_headers
    'Account Created Quarter']
 end
 
-def worker_headers
-  ['Bridge Instance',
-   'Client Type',
-   'Account Id',
-   'Client Name',
-   'Paychex User Id',
-   'Bridge User Id',
-   'User Created At',
-   'User Deleted At',
-   'Paychex Worker Full Name']
-end
-
 def get_account_data(date, record)
 
   account = Account.with_deleted.find(record.account_id)
@@ -54,45 +40,30 @@ def get_account_data(date, record)
   product_change_date = record.versions_created_at
   product_change_quarter = get_quarter(product_change_date)
 
+  workers = account.workers.with_deleted.where('created_at < ?', date.end_of_quarter).where.not('deleted_at < ?', date.beginning_of_quarter).count
 
-  # if codes.first == 'LMS_ESS' && codes.last == 'LMS_ENH'
-  #   workers = account.workers.with_deleted.where.not('deleted_at < ?', product_change_date).where.not(
-  #     'created_at > ?', product_change_date.end_of_quarter
-  #   )
-  # end
-
-  # if codes.first == 'LMS_ENH' && codes.last == 'LMS_ESS'
-  #   workers = account.workers.with_deleted.where.not('created_at > ?', product_change_date).where.not(
-  #     'created_at > ?', product_change_date.end_of_quarter
-  #   )
-  # end
-  
-
-  workers = account.workers.with_deleted.where('created_at < ?', date.end_of_quarter).where.not('deleted_at < ?', date.beginning_of_quarter)
-
-  @all_workers << workers
   [
     'paychex',
-    record.client_type,
-    record.display_id,
-    record.account_id,
-    record.legal_name,
-    "https://#{record.bridge_subdomain}-paychex.bridgeapp.com",
+    account.client_type,
+    account.display_id,
+    account.id,
+    account.name,
+    "https://#{account.bridge_subdomain}-paychex.bridgeapp.com",
     created_date,
-    record.deleted_at,
+    account.deleted_at,
     'TRUE',
     codes.first,
     codes.last,
     product_change_date,
     product_change_date.year,
     "Q#{product_change_quarter}",
-    workers.count,
+    workers,
     created_date.year,
     "Q#{created_quarter}"
   ]
 end
 
-@all_workers = []
+# @all_workers = []
 
 CSV.open(open(account_file), 'w') do |csv|
   csv << account_headers
@@ -125,27 +96,23 @@ CSV.open(open(account_file), 'w') do |csv|
     csv << data
   end
  
-  PaychexAccount.with_deleted.where.not(
-    id: found_records
+  Account.with_deleted.where.not(
+    id: found_account_ids
   ).where(
     product_code: 'LMS_ENH'
   ).where(
     'created_at < ?', date.end_of_quarter
-  ).where.not('deleted_at > ?', date.end_of_quarter).find_each do |account|
+  ).find_each do |account|
 
-    next if account.blank?
-
-    workers = account.workers.with_deleted.where('created_at < ?', date.end_of_quarter).where.not('deleted_at < ?', date.beginning_of_quarter)
-
-    @all_workers << workers
+    workers = account.workers.with_deleted.where('created_at < ?', date.end_of_quarter).where.not('deleted_at < ?', date.beginning_of_quarter).count
 
     quarter = get_quarter(date)
     csv << [
       'paychex',
       account.client_type,
       account.display_id,
-      account.account_id,
-      account.legal_name,
+      account.id,
+      account.name,
       "https://#{account.bridge_subdomain}-paychex.bridgeapp.com",
       account.created_at,
       account.deleted_at,
@@ -155,26 +122,9 @@ CSV.open(open(account_file), 'w') do |csv|
       nil,
       nil,
       nil,
-      workers.count,
+      workers,
       date.year,
       "Q#{quarter}"
-    ]
-  end
-end
-
-CSV.open(open(worker_file), 'w') do |csv|
-  csv << worker_headers
-  @all_workers.flatten.each do |worker|
-    csv << [
-      'paychex',
-      worker.paychex_account.client_type,
-      worker.paychex_account.account_id,
-      worker.paychex_account.legal_name,
-      worker.user_id,
-      worker.bridge_user_id,
-      worker.created_at,
-      worker.deleted_at,
-      worker.full_name
     ]
   end
 end
