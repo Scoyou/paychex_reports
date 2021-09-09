@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-date = Date.parse('apr 2021')
+date = Date.parse('dec 2020')
 
 def get_quarter(date)
   (date.month / 3.0).ceil
@@ -28,6 +28,18 @@ def account_headers
    'User Count',
    'Account Created Year',
    'Account Created Quarter']
+end
+
+def workers_query(account, created, deleted)
+  account.workers.with_deleted.where(
+    'deleted_at > ?
+     OR deleted_at IS NULL
+    ', deleted
+  ).where(
+    'created_at < ?', created
+  ).where.not(
+    "workers.composite_uid ILIKE '%duplicate%'"
+  )
 end
 
 CSV.open(open(account_file), 'w') do |csv|
@@ -61,36 +73,13 @@ CSV.open(open(account_file), 'w') do |csv|
 
     if codes.first == 'LMS_ESS' && codes.last == 'LMS_ENH'
       highest_date = [product_change_date, date.beginning_of_quarter].max
+      workers = workers_query(account, date.end_of_quarter, highest_date)
 
-      workers = account.workers.with_deleted.where(
-        'deleted_at > ?
-         OR deleted_at IS NULL
-        ', highest_date
-      ).where(
-        'created_at < ?', date.end_of_quarter
-      ).where.not(
-        "workers.composite_uid ILIKE '%duplicate%'"
-      )
     elsif codes.first == 'LMS_ENH' && codes.last == 'LMS_ESS'
-      workers = account.workers.with_deleted.where(
-        'created_at < ?', product_change_date
-      ).where(
-        'deleted_at > ?
-         OR deleted_at IS NULL
-        ', date.beginning_of_quarter
-      ).where.not(
-        "workers.composite_uid ILIKE '%duplicate%'"
-      )
+      workers = workers_query(account, product_change_date, date.beginning_of_quarter)
+
     else
-      workers = account.workers.with_deleted.where(
-        'created_at < ?', date.end_of_quarter
-      ).where(
-        'deleted_at > ?
-         OR deleted_at IS NULL
-        ', date.beginning_of_quarter
-      ).where.not(
-        "workers.composite_uid ILIKE '%duplicate%'"
-      )
+      workers = workers_query(account, date.end_of_quarter, date.beginning_of_quarter)
     end
 
     @all_workers << workers
@@ -126,15 +115,7 @@ CSV.open(open(account_file), 'w') do |csv|
   ).where(
     'created_at < ?', date.end_of_quarter
   ).find_each do |account|
-    workers = account.workers.with_deleted.where(
-      'created_at < ?', date.end_of_quarter
-    ).where(
-      'deleted_at > ?
-       OR deleted_at IS NULL
-      ', date.beginning_of_quarter
-    ).where.not(
-      "workers.composite_uid ILIKE '%duplicate%'"
-    )
+    workers = workers_query(account, date.end_of_quarter, date.beginning_of_quarter)
 
     @all_workers << workers
 
