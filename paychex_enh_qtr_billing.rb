@@ -433,15 +433,15 @@ order by bridge_instance
 
 [
   {
-    file: './paychex_enh_qtr_billing_detail_by_user.csv',
+    file: '~/paychex_reports/paychex_enh_qtr_billing_detail_by_user.csv',
     results: conn.execute('SELECT * FROM view_billing_detail_by_user').to_a
   },
   {
-    file: './paychex_enh_qtr_billing_detail.csv',
+    file: '~/paychex_reports/paychex_enh_qtr_billing_detail.csv',
     results: conn.execute('SELECT * FROM paychex_enh_qtr_billing_detail').to_a
   },
   {
-    file: './paychex_enh_qtr_billing_summary.csv',
+    file: '~/paychex_reports/paychex_enh_qtr_billing_summary.csv',
     results: conn.execute('SELECT * FROM paychex_enh_qtr_billing_summary').to_a
   }
 ].each do |query|
