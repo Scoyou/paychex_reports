@@ -43,7 +43,6 @@ class PaychexBillingReport
       updated_at_to text
       )"
     )
-
     PaperTrail::Version.where(
       "object_changes LIKE '%product_code%'
       OR object_changes LIKE '%client_type%'
@@ -64,7 +63,6 @@ class PaychexBillingReport
       end
 
       attributes.each_value { |i| i&.delete!("'") }
-
       sql(
         "insert into object_versions (
           item_id,
@@ -80,7 +78,8 @@ class PaychexBillingReport
           product_code_to,
           updated_at_to
           )
-        VALUES (
+        VALUES
+        (
           '#{record.item_id}',
           '#{attributes[:client_type]}',
           '#{client_type_changes&.first}',
@@ -264,13 +263,15 @@ class PaychexBillingReport
         from view_paychex_accounts_historical
         where ( account_deleted_at::date is null
               or account_deleted_at::date > date_trunc('quarter','#{@date}'::date)::date )
-          and account_created_at::date < date_trunc('quarter','#{@date}'::date)::date
+          and account_created_at::date < (
+            date_trunc('quarter', '#{@date}'::date) + interval '3 months' - interval '1 day')::date
       )
       ,enhanced_accounts as
       (
         select *
           ,case when product_code_updated_at_latest >= date_trunc('quarter','#{@date}'::date)::date
-                  and product_code_updated_at_latest < date_trunc('quarter','#{@date}'::date)::date
+                  and product_code_updated_at_latest < (
+                    date_trunc('quarter', '#{@date}'::date) + interval '3 months' - interval '1 day')::date
                 then 'change in period'
               when product_code_latest = 'LMS_ENH'
                 then 'enhanced'
@@ -335,13 +336,15 @@ class PaychexBillingReport
                       )
                   then 1
                 when ea.enhanced_category = 'change in period' and ea.product_code_new_value_latest = 'LMS_ENH'
-                    and p.created_at < date_trunc('quarter','#{@date}'::date)::date
+                    and p.created_at < (
+                      date_trunc('quarter','#{@date}'::date) + interval '3 months' - interval '1 day')::date
                     and (p.deleted_at is null
                         or p.deleted_at > ea.product_code_updated_at_latest
                       )
                   then 1
                 when ea.enhanced_category = 'enhanced'
-                    and p.created_at < date_trunc('quarter','#{@date}'::date)::date
+                    and p.created_at < (
+                      date_trunc('quarter','#{@date}'::date) + interval '3 months' - interval '1 day')::date
                     and (p.deleted_at is null
                         or p.deleted_at > date_trunc('quarter','#{@date}'::date)::date
                       )
