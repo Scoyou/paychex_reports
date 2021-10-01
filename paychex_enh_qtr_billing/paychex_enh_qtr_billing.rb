@@ -1,75 +1,14 @@
 # frozen_string_literal: true
 
-conn = ActiveRecord::Base.connection
-conn.execute('drop table if exists object_versions cascade;')
-conn.execute(
-  "create temporary table object_versions (
-   item_id integer,
-   id integer,
-   account_id integer,
-   client_type text,
-   client_type_from text,
-   client_type_to text,
-   company_id text,
-   display_id text,
-   legal_name text,
-   product_code text,
-   product_code_from text,
-   product_code_to text,
-   updated_at_to text
-  )"
-)
+@date = Date.parse('Nov 15 2020')
 
-PaperTrail::Version.where(
-  "object_changes LIKE '%product_code%'
-   OR object_changes LIKE '%client_type%'
-   OR object_changes LIKE '%client_type%'
-   AND object_changes LIKE '%product_code%'
-  "
-).find_each do |record|
-  object = record.object.split(' ')
-  code_changes = record.object_changes.split(' ').grep(/LMS/)
-  client_type_changes = record.object_changes.split(' ').grep(/PEO|ASO|HRE|BPR/)
-
-  name_regex = Regexp.new(/(legal_name: )(.*)/)
-  legal_name = record.object.split("\n").grep(name_regex).first.match(name_regex).captures.last
-  client_type = object[(object.find_index('client_type:') + 1)]
-  company_id = object[(object.find_index('company_id:') + 1)]
-  display_id = object[(object.find_index('display_id:') + 1)]
-  product_code = object[(object.find_index('product_code:') + 1)]
-
-  [client_type, company_id, display_id, legal_name, product_code].map { |i| i.delete!('\'') }
-
-  conn.execute(
-    "insert into object_versions (
-      item_id,
-      client_type,
-      client_type_from,
-      client_type_to,
-      company_id,
-      display_id,
-      legal_name,
-      product_code,
-      product_code_from,
-      product_code_to,
-      updated_at_to
-      )
-    VALUES (
-      '#{record.item_id}',
-      '#{client_type}',
-      '#{client_type_changes&.first}',
-      '#{client_type_changes&.last}',
-      '#{company_id}',
-      '#{display_id}',
-      '#{legal_name}',
-      '#{product_code}',
-      '#{code_changes&.first}',
-      '#{code_changes&.last}',
-      '#{record.created_at}'
-    )
-    "
-  )
+def get_quarter(date)
+  (date.month / 3.0).ceil
 end
+
+conn = ActiveRecord::Base.connection
+# create_object_versions_table.rb
+
 # view_paychex_updates
 conn.execute(%(
 create or replace view view_paychex_updates AS
@@ -188,9 +127,9 @@ conn.execute(%(
       ,account_created_at
       ,account_deleted_at::date
 
-      ,last_value(case when client_type_updated_at::date < date_trunc('quarter',current_date)::date
+      ,last_value(case when client_type_updated_at::date < date_trunc('quarter','#{@date}'::date)::date
                   then client_type_new_value
-                when client_type_updated_at::date >= date_trunc('quarter',current_date)::date
+                when client_type_updated_at::date >= date_trunc('quarter','#{@date}'::date)::date
                   then client_type_prior_value
                 else client_type
                 end)
@@ -198,9 +137,9 @@ conn.execute(%(
               rows between unbounded preceding and unbounded following
             ) as client_type_latest
 
-      ,last_value(case when product_code_updated_at::date < date_trunc('quarter',current_date)::date
+      ,last_value(case when product_code_updated_at::date < date_trunc('quarter','#{@date}'::date)::date
                   then product_code_new_value
-                when product_code_updated_at::date >= date_trunc('quarter',current_date)::date
+                when product_code_updated_at::date >= date_trunc('quarter','#{@date}'::date)::date
                   then product_code_prior_value
                 else product_code
                 end)
@@ -208,21 +147,21 @@ conn.execute(%(
               rows between unbounded preceding and unbounded following
             ) as product_code_latest
 
-      ,last_value(case when product_code_updated_at::date < date_trunc('quarter',current_date)::date
+      ,last_value(case when product_code_updated_at::date < date_trunc('quarter','#{@date}'::date)::date
                   then product_code_prior_value
                 end)
         over ( partition by bridge_instance, account_id order by product_code_updated_at::date nulls first
               rows between unbounded preceding and unbounded following
             ) as product_code_prior_value_latest
 
-      ,last_value(case when product_code_updated_at::date < date_trunc('quarter',current_date)::date
+      ,last_value(case when product_code_updated_at::date < date_trunc('quarter','#{@date}'::date)::date
                   then product_code_new_value
                 end)
         over ( partition by bridge_instance, account_id order by product_code_updated_at::date nulls first
               rows between unbounded preceding and unbounded following
             ) as product_code_new_value_latest
 
-      ,last_value(case when product_code_updated_at::date < date_trunc('quarter',current_date)::date
+      ,last_value(case when product_code_updated_at::date < date_trunc('quarter','#{@date}'::date)::date
                   then product_code_updated_at::date
                 end)
         over ( partition by bridge_instance, account_id order by product_code_updated_at::date nulls first
@@ -231,14 +170,14 @@ conn.execute(%(
 
     from view_paychex_accounts_historical
     where ( account_deleted_at::date is null
-          or account_deleted_at::date > date_trunc('quarter',current_date)::date )
-      and account_created_at::date < date_trunc('quarter',current_date)::date
+          or account_deleted_at::date > date_trunc('quarter','#{@date}'::date)::date )
+      and account_created_at::date < date_trunc('quarter','#{@date}'::date)::date
   )
   ,enhanced_accounts as
   (
     select *
-      ,case when product_code_updated_at_latest >= date_trunc('quarter',current_date)::date
-              and product_code_updated_at_latest < date_trunc('quarter',current_date)::date
+      ,case when product_code_updated_at_latest >= date_trunc('quarter','#{@date}'::date)::date
+              and product_code_updated_at_latest < date_trunc('quarter','#{@date}'::date)::date
             then 'change in period'
           when product_code_latest = 'LMS_ENH'
             then 'enhanced'
@@ -299,19 +238,19 @@ conn.execute(%(
     where (case when ea.enhanced_category = 'change in period' and ea.product_code_new_value_latest = 'LMS_ESS'
                 and p.created_at < ea.product_code_updated_at_latest
                 and (p.deleted_at is null
-                    or p.deleted_at > date_trunc('quarter',current_date)::date
+                    or p.deleted_at > date_trunc('quarter','#{@date}'::date)::date
                   )
               then 1
             when ea.enhanced_category = 'change in period' and ea.product_code_new_value_latest = 'LMS_ENH'
-                and p.created_at < date_trunc('quarter',current_date)::date
+                and p.created_at < date_trunc('quarter','#{@date}'::date)::date
                 and (p.deleted_at is null
                     or p.deleted_at > ea.product_code_updated_at_latest
                   )
               then 1
             when ea.enhanced_category = 'enhanced'
-                and p.created_at < date_trunc('quarter',current_date)::date
+                and p.created_at < date_trunc('quarter','#{@date}'::date)::date
                 and (p.deleted_at is null
-                    or p.deleted_at > date_trunc('quarter',current_date)::date
+                    or p.deleted_at > date_trunc('quarter','#{@date}'::date)::date
                   )
               then 1
             end) = 1
@@ -339,8 +278,8 @@ conn.execute(%(
     ,min(paychex_user_email) as paychex_user_email
     ,max(status_in_middleware) as status_in_middleware
     ,min(created_at_middleware_user_table) as created_at_middleware_user_table
-    ,date_trunc('quarter',current_date)::date as report_period_start
-    ,date_trunc('quarter', current_date)  + interval '3 months' - interval '1 day' as report_period_end
+    ,date_trunc('quarter','#{@date}'::date)::date as report_period_start
+    ,date_trunc('quarter', '#{@date}'::date)  + interval '3 months' - interval '1 day' as report_period_end
   from users_in_period
   group by bridge_instance
     ,client_type_latest
@@ -420,8 +359,8 @@ select bridge_instance
 	,client_type
 	,count(account_id) as accounts
 	,sum(user_count) as user_count
-	,date_trunc('quarter',current_date)::date as report_period_start
-	,(date_trunc('quarter', current_date)  + interval '3 months' - interval '1 day')::date as report_period_end
+	,date_trunc('quarter','#{@date}'::date)::date as report_period_start
+	,(date_trunc('quarter', '#{@date}'::date)  + interval '3 months' - interval '1 day')::date as report_period_end
 from paychex_enh_qtr_billing_detail
 group by bridge_instance
 	,client_type
@@ -430,30 +369,28 @@ order by bridge_instance
 ;
 ))
 
+quarter = get_quarter(@date)
+path = "./Q#{quarter}"
 
 [
   {
-    file: '~/paychex_reports/paychex_enh_qtr_billing_detail_by_user.csv',
+    file: "#{path}_paychex_enh_qtr_billing_detail_by_user.csv",
     results: conn.execute('SELECT * FROM view_billing_detail_by_user').to_a
   },
   {
-    file: '~/paychex_reports/paychex_enh_qtr_billing_detail.csv',
+    file: "#{path}_paychex_enh_qtr_billing_detail.csv",
     results: conn.execute('SELECT * FROM paychex_enh_qtr_billing_detail').to_a
   },
   {
-    file: '~/paychex_reports/paychex_enh_qtr_billing_summary.csv',
+    file: "#{path}_paychex_enh_qtr_billing_summary.csv",
     results: conn.execute('SELECT * FROM paychex_enh_qtr_billing_summary').to_a
   }
 ].each do |query|
   `touch #{query[:file]}`
-  CSV.open(File.open(query[:file]), 'w') do |csv|
+  CSV.open(open(query[:file]), 'w') do |csv|
     csv << query[:results].first.keys
     query[:results].each do |row|
       csv << row.values
     end
   end
 end
-
-
-
-

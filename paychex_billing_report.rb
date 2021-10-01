@@ -20,7 +20,6 @@ class PaychexBillingReport
     @quarter = get_quarter(date)
 
     create_object_versions_table unless object_versions_exists?
-    populate_object_versions_table unless object_versions_exists?
     run_queries
     write_to_csv
   end
@@ -44,6 +43,7 @@ class PaychexBillingReport
       updated_at_to text
       )"
     )
+    populate_object_versions_table
   end
 
   def populate_object_versions_table
@@ -53,12 +53,12 @@ class PaychexBillingReport
       OR object_changes LIKE '%client_type%'
       AND object_changes LIKE '%product_code%'
       "
-    ).find_in_batches do |batch|
+    ).find_in_batches(batch_size: 2000) do |batch|
       objects = []
       batch.each do |record|
         object_changes = record.object_changes.split(' ')
         product_code_changes = object_changes.grep(/LMS/)
-        client_type_changes = object_changes.grep(/PEO|ASO|HRE|BPR/)
+        client_type_changes = object_changes.grep(/PEO$|ASO$|HRE$|BPR$/)
 
         split_object = record.object.split("\n")
         attributes = {}
@@ -87,30 +87,26 @@ class PaychexBillingReport
           )
         ".strip.delete!("\n")
       end
-      insert_data_in_batches('object_versions', objects.join(','))
-    end
-  end
-
-  def insert_data_in_batches(table, data)
-    sql(
-      "insert into #{table} (
+      sql(
+        "insert into object_versions (
           item_id,
           client_type,
           client_type_from,
           client_type_to,
-          company_id,
-          display_id,
-          account_id,
-          legal_name,
-          product_code,
-          product_code_from,
-          product_code_to,
-          updated_at_to
-          )
-        VALUES
-          #{data}
-        "
-    )
+            company_id,
+            display_id,
+            account_id,
+            legal_name,
+            product_code,
+            product_code_from,
+            product_code_to,
+            updated_at_to
+            )
+          VALUES
+            #{objects.join(', ')}
+          "
+      )
+    end
   end
 
   def run_queries
@@ -234,9 +230,11 @@ class PaychexBillingReport
           ,account_created_at
           ,account_deleted_at::date
 
-          ,last_value(case when client_type_updated_at::date < date_trunc('quarter','#{@date}'::date)::date
+          ,last_value(case when client_type_updated_at::date < (
+            date_trunc('quarter', '#{@date}'::date) + interval '3 months' - interval '1 day')::date
                       then client_type_new_value
-                    when client_type_updated_at::date >= date_trunc('quarter','#{@date}'::date)::date
+                    when client_type_updated_at::date >= (
+                      date_trunc('quarter', '#{@date}'::date) + interval '3 months' - interval '1 day')::date
                       then client_type_prior_value
                     else client_type
                     end)
@@ -244,9 +242,11 @@ class PaychexBillingReport
                   rows between unbounded preceding and unbounded following
                 ) as client_type_latest
 
-          ,last_value(case when product_code_updated_at::date < date_trunc('quarter','#{@date}'::date)::date
+          ,last_value(case when product_code_updated_at::date < (
+            date_trunc('quarter', '#{@date}'::date) + interval '3 months' - interval '1 day')::date
                       then product_code_new_value
-                    when product_code_updated_at::date >= date_trunc('quarter','#{@date}'::date)::date
+                    when product_code_updated_at::date >= (
+                      date_trunc('quarter', '#{@date}'::date) + interval '3 months' - interval '1 day')::date
                       then product_code_prior_value
                     else product_code
                     end)
@@ -254,21 +254,24 @@ class PaychexBillingReport
                   rows between unbounded preceding and unbounded following
                 ) as product_code_latest
 
-          ,last_value(case when product_code_updated_at::date < date_trunc('quarter','#{@date}'::date)::date
+          ,last_value(case when product_code_updated_at::date < (
+            date_trunc('quarter', '#{@date}'::date) + interval '3 months' - interval '1 day')::date
                       then product_code_prior_value
                     end)
             over ( partition by bridge_instance, account_id order by product_code_updated_at::date nulls first
                   rows between unbounded preceding and unbounded following
                 ) as product_code_prior_value_latest
 
-          ,last_value(case when product_code_updated_at::date < date_trunc('quarter','#{@date}'::date)::date
+          ,last_value(case when product_code_updated_at::date < (
+            date_trunc('quarter', '#{@date}'::date) + interval '3 months' - interval '1 day')::date
                       then product_code_new_value
                     end)
             over ( partition by bridge_instance, account_id order by product_code_updated_at::date nulls first
                   rows between unbounded preceding and unbounded following
                 ) as product_code_new_value_latest
 
-          ,last_value(case when product_code_updated_at::date < date_trunc('quarter','#{@date}'::date)::date
+          ,last_value(case when product_code_updated_at::date < (
+            date_trunc('quarter', '#{@date}'::date) + interval '3 months' - interval '1 day')::date
                       then product_code_updated_at::date
                     end)
             over ( partition by bridge_instance, account_id order by product_code_updated_at::date nulls first
@@ -510,4 +513,4 @@ class PaychexBillingReport
 end
 
 reports = PaychexBillingReport.new
-reports.perform(Date.parse('Sept 01 2021'))
+reports.perform(Date.parse('dec 02 2020'))

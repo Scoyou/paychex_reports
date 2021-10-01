@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-date = Date.parse('dec 2020')
+date = Date.parse("sept 15 2021")
 
 def get_quarter(date)
   (date.month / 3.0).ceil
@@ -62,7 +62,7 @@ CSV.open(open(account_file), 'w') do |csv|
     ).first
     next if account.blank?
 
-    codes = record.object_changes.split(' ').grep(/LMS/)
+    codes = record.object_changes.split(' ').grep(/LMS/) 
 
     next if codes.last == 'LMS_ESS' && !record.created_at.between?(date.beginning_of_quarter, date.end_of_quarter)
 
