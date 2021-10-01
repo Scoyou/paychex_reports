@@ -20,8 +20,9 @@ class PaychexBillingReport
     @quarter = get_quarter(date)
 
     create_object_versions_table unless object_versions_exists?
+    populate_object_versions_table unless object_versions_exists?
     run_queries
-    # write_to_csv
+    write_to_csv
   end
 
   def create_object_versions_table
@@ -43,7 +44,9 @@ class PaychexBillingReport
       updated_at_to text
       )"
     )
+  end
 
+  def populate_object_versions_table
     PaperTrail::Version.where(
       "object_changes LIKE '%product_code%'
       OR object_changes LIKE '%client_type%'
@@ -84,26 +87,30 @@ class PaychexBillingReport
           )
         ".strip.delete!("\n")
       end
-      sql(
-        "insert into object_versions (
-            item_id,
-            client_type,
-            client_type_from,
-            client_type_to,
-            company_id,
-            display_id,
-            account_id,
-            legal_name,
-            product_code,
-            product_code_from,
-            product_code_to,
-            updated_at_to
-            )
-          VALUES
-            #{objects.join(',')}
-          "
-      )
+      insert_data_in_batches('object_versions', objects.join(','))
     end
+  end
+
+  def insert_data_in_batches(table, data)
+    sql(
+      "insert into #{table} (
+          item_id,
+          client_type,
+          client_type_from,
+          client_type_to,
+          company_id,
+          display_id,
+          account_id,
+          legal_name,
+          product_code,
+          product_code_from,
+          product_code_to,
+          updated_at_to
+          )
+        VALUES
+          #{data}
+        "
+    )
   end
 
   def run_queries
@@ -503,4 +510,4 @@ class PaychexBillingReport
 end
 
 reports = PaychexBillingReport.new
-reports.perform(Date.parse('Dec 01 2020'))
+reports.perform(Date.parse('Sept 01 2021'))
