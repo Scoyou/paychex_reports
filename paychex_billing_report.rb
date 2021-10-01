@@ -21,7 +21,7 @@ class PaychexBillingReport
 
     create_object_versions_table unless object_versions_exists?
     run_queries
-    write_to_csv
+    # write_to_csv
   end
 
   def create_object_versions_table
@@ -43,57 +43,65 @@ class PaychexBillingReport
       updated_at_to text
       )"
     )
+
     PaperTrail::Version.where(
       "object_changes LIKE '%product_code%'
       OR object_changes LIKE '%client_type%'
       OR object_changes LIKE '%client_type%'
       AND object_changes LIKE '%product_code%'
       "
-    ).find_each do |record|
-      object_changes = record.object_changes.split(' ')
-      product_code_changes = object_changes.grep(/LMS/)
-      client_type_changes = object_changes.grep(/PEO|ASO|HRE|BPR/)
+    ).find_in_batches do |batch|
+      objects = []
+      batch.each do |record|
+        object_changes = record.object_changes.split(' ')
+        product_code_changes = object_changes.grep(/LMS/)
+        client_type_changes = object_changes.grep(/PEO|ASO|HRE|BPR/)
 
-      split_object = record.object.split("\n")
-      attributes = {}
-      split_object.each do |item|
-        split = item.split(': ')
+        split_object = record.object.split("\n")
+        attributes = {}
+        split_object.each do |item|
+          split = item.split(': ')
 
-        attributes[split.first.to_sym] = split.size > 1 ? split.last : nil
+          attributes[split.first.to_sym] = split.size > 1 ? split.last : nil
+        end
+
+        attributes.each_value { |i| i&.delete!("'") }
+
+        objects << "
+          (
+            '#{record.item_id}',
+            '#{attributes[:client_type]}',
+            '#{client_type_changes&.first}',
+            '#{client_type_changes&.last}',
+            '#{attributes[:company_id]}',
+            '#{attributes[:display_id]}',
+            '#{attributes[:account_id].to_i}',
+            '#{attributes[:legal_name]}',
+            '#{attributes[:product_code]}',
+            '#{product_code_changes&.first}',
+            '#{product_code_changes&.last}',
+            '#{record.created_at}'
+          )
+        ".strip.delete!("\n")
       end
-
-      attributes.each_value { |i| i&.delete!("'") }
       sql(
         "insert into object_versions (
-          item_id,
-          client_type,
-          client_type_from,
-          client_type_to,
-          company_id,
-          display_id,
-          account_id,
-          legal_name,
-          product_code,
-          product_code_from,
-          product_code_to,
-          updated_at_to
-          )
-        VALUES
-        (
-          '#{record.item_id}',
-          '#{attributes[:client_type]}',
-          '#{client_type_changes&.first}',
-          '#{client_type_changes&.last}',
-          '#{attributes[:company_id]}',
-          '#{attributes[:display_id]}',
-          '#{attributes[:account_id].to_i}',
-          '#{attributes[:legal_name]}',
-          '#{attributes[:product_code]}',
-          '#{product_code_changes&.first}',
-          '#{product_code_changes&.last}',
-          '#{record.created_at}'
-        )
-        "
+            item_id,
+            client_type,
+            client_type_from,
+            client_type_to,
+            company_id,
+            display_id,
+            account_id,
+            legal_name,
+            product_code,
+            product_code_from,
+            product_code_to,
+            updated_at_to
+            )
+          VALUES
+            #{objects.join(',')}
+          "
       )
     end
   end
@@ -495,4 +503,4 @@ class PaychexBillingReport
 end
 
 reports = PaychexBillingReport.new
-reports.perform(Date.parse("Dec 01 2020"))
+reports.perform(Date.parse('Dec 01 2020'))
